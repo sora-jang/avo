@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AVO — 악플 탐지기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #09090b;
+            color: #fafafa;
+            min-height: 100vh;
+        }
+
+        /* 스크롤바 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #18181b; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+
+        /* URL 입력 영역 */
+        .url-zone {
+            background: #18181b;
+            border: 1.5px solid #27272a;
+            border-radius: 12px;
+            min-height: 140px;
+            padding: 14px;
+            cursor: text;
+            transition: border-color 0.2s;
+        }
+        .url-zone:focus-within { border-color: #22c55e; }
+        .url-zone.drag-over { border-color: #22c55e; background: #1a2e1a; }
+
+        .url-tag {
+            display: inline-flex; align-items: center;
+            background: #1e3a2e; color: #86efac;
+            border: 1px solid #166534;
+            padding: 4px 10px 4px 12px; border-radius: 6px;
+            font-size: 11px; font-weight: 500;
+            word-break: break-all; max-width: 100%; line-height: 1.5;
+            gap: 6px;
+        }
+        .tag-del {
+            cursor: pointer; opacity: 0.5; font-size: 13px; line-height: 1;
+            flex-shrink: 0;
+            transition: opacity 0.15s;
+        }
+        .tag-del:hover { opacity: 1; }
+
+        /* 인풋 공통 */
+        .inp {
+            width: 100%; background: #18181b; border: 1.5px solid #27272a;
+            border-radius: 10px; color: #fafafa; outline: none;
+            padding: 14px 16px; font-size: 14px; font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        .inp::placeholder { color: #52525b; }
+        .inp:focus { border-color: #22c55e; }
+
+        /* 플랫폼 뱃지 */
+        .badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 4px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+            background: #1c1c1e; border: 1px solid #2d2d2f; color: #a1a1aa;
+        }
+        .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: #22c55e; }
+
+        /* CTA 버튼 */
+        #btn {
+            width: 100%; padding: 18px;
+            background: #22c55e; color: #000;
+            font-weight: 800; font-size: 16px; letter-spacing: 0.02em;
+            border: none; border-radius: 10px; cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        #btn:hover { background: #16a34a; }
+        #btn:active { transform: scale(0.99); }
+        #btn:disabled { background: #3f3f46; color: #71717a; cursor: not-allowed; }
+
+        /* 파일 카드 */
+        .file-card {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 12px; border-radius: 8px;
+            background: #1c1c1e; border: 1px solid #2d2d2f;
+            font-size: 12px; color: #a1a1aa;
+        }
+
+        /* 결과 카드 */
+        .result-card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+        .result-card:hover { border-color: #3f3f46; }
+
+        /* 스피너 */
+        .spinner {
+            width: 36px; height: 36px;
+            border: 2px solid #27272a;
+            border-top-color: #22c55e;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* PDF 출력 */
+        .pdf-item { page-break-inside: avoid; }
+        @media print {
+            body { background: white !important; color: black !important; }
+            body * { visibility: hidden; }
+            #pdf-area, #pdf-area * { visibility: visible; }
+            #pdf-area {
+                position: absolute; top: 0; left: 0;
+                width: 100%; padding: 20px;
+                background: white !important; color: black !important;
+            }
+            .result-card {
+                background: white !important; border: 1px solid #eee !important;
+                color: black !important;
+            }
+            @page { margin: 15mm; size: A4; }
+        }
+    </style>
+</head>
+<body>
+
+<div style="max-width: 780px; margin: 0 auto; padding: 60px 24px 100px;">
+
+    <!-- 헤더 -->
+    <header style="margin-bottom: 48px;">
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:8px;">
+            <span style="font-size:32px; font-weight:900; letter-spacing:-1.5px; color:#fafafa;">AVO</span>
+            <span style="font-size:13px; color:#52525b; font-weight:500;">v2.0</span>
+        </div>
+        <p style="font-size:14px; color:#71717a; font-weight:400; line-height:1.6;">
+            아티스트 보호를 위한 악플 탐지기 &nbsp;·&nbsp; AI 기반 권익 침해 콘텐츠 선별 시스템
+        </p>
+    </header>
+
+    <!-- 입력 섹션 -->
+    <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:12px;">
+
+        <!-- 플랫폼 뱃지 -->
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <span class="badge"><span class="badge-dot"></span>네이트판</span>
+            <span class="badge"><span class="badge-dot"></span>디씨인사이드</span>
+            <span class="badge"><span class="badge-dot"></span>네이버뉴스</span>
+            <span class="badge"><span class="badge-dot"></span>더쿠</span>
+            <span class="badge"><span class="badge-dot"></span>X (트위터)</span>
+            <span class="badge"><span class="badge-dot"></span>YouTube</span>
+        </div>
+
+        <!-- URL 입력 -->
+        <div class="url-zone" id="tag-container" onclick="document.getElementById('url-input').focus()">
+            <div id="tags-wrapper" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px;"></div>
+            <textarea id="url-input" class="inp" style="min-height:40px; resize:none; padding:6px 2px; border:none; background:transparent; font-size:13px;"
+                placeholder="URL을 붙여넣거나 엑셀 파일을 드래그하세요..." rows="1"></textarea>
+        </div>
+
+        <!-- 파일 카드 + 컨트롤 -->
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <div id="file-cards" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+            <div style="display:flex; align-items:center; gap:16px; margin-left:auto;">
+                <span id="url-count" style="font-size:12px; color:#52525b;">총 0개</span>
+                <label for="excel-upload" style="font-size:12px; color:#71717a; cursor:pointer; transition:color 0.15s;" onmouseover="this.style.color='#22c55e'" onmouseout="this.style.color='#71717a'">엑셀 업로드</label>
+                <input id="excel-upload" type="file" accept=".xlsx,.xls,.csv" multiple class="hidden" onchange="loadExcel(this)">
+                <button onclick="manualUrls=[]; fileUploads.clear(); renderAll();" style="font-size:12px; color:#52525b; background:none; border:none; cursor:pointer; transition:color 0.15s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#52525b'">전체 삭제</button>
+            </div>
+        </div>
+
+        <!-- API Key + 모델 선택 -->
+        <div style="display:flex; gap:10px;">
+            <input id="key" type="password" class="inp" placeholder="OpenAI API Key  (sk-...)" style="font-family: monospace; font-size:13px; flex:1;">
+            <select id="model" class="inp" style="width:200px; flex-shrink:0; cursor:pointer;">
+                <optgroup label="GPT-5">
+                    <option value="gpt-5.4">gpt-5.4</option>
+                    <option value="gpt-5-mini" selected>gpt-5-mini</option>
+                </optgroup>
+                <optgroup label="GPT-4.1">
+                    <option value="gpt-4.1">gpt-4.1</option>
+                    <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                    <option value="gpt-4.1-nano">gpt-4.1-nano</option>
+                </optgroup>
+                <optgroup label="GPT-4o">
+                    <option value="gpt-4o">gpt-4o</option>
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                </optgroup>
+                <optgroup label="o 시리즈">
+                    <option value="o4-mini">o4-mini</option>
+                </optgroup>
+            </select>
+        </div>
+
+        <!-- 프롬프트 -->
+        <textarea id="prompt" class="inp" rows="2" style="resize:none; font-size:13px; line-height:1.6;">아티스트의 권익 침해를 하는 게시물과 댓글로서 법적인 분쟁이 가능한 수준의 악플을 선별해줘</textarea>
+
+        <!-- 실행 버튼 -->
+        <button onclick="runAvo()" id="btn">악플 분석 시작</button>
+    </div>
+
+    <!-- 결과 -->
+    <div id="result-box" class="hidden" style="margin-top:48px;">
+
+        <!-- 로딩 -->
+        <div id="status" style="display:flex; flex-direction:column; align-items:center; gap:16px; padding:60px 0;">
+            <div class="spinner"></div>
+            <p id="status-msg" style="font-size:14px; color:#71717a; font-weight:500;">AI가 분석 중입니다...</p>
+        </div>
+
+        <!-- 결과 영역 -->
+        <div id="content-area" class="hidden">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px;">
+                <div>
+                    <p style="font-size:12px; color:#52525b; margin-bottom:4px;">선별 기준</p>
+                    <p id="res-prompt" style="font-size:14px; color:#a1a1aa; font-weight:500;"></p>
+                </div>
+                <button onclick="downloadPDF()" style="padding:10px 20px; background:#18181b; border:1.5px solid #27272a; border-radius:8px; color:#a1a1aa; font-size:13px; font-weight:600; cursor:pointer; transition:border-color 0.2s;" onmouseover="this.style.borderColor='#52525b'" onmouseout="this.style.borderColor='#27272a'">
+                    PDF 저장
+                </button>
+            </div>
+
+            <div id="pdf-area">
+                <!-- PDF 헤더 (인쇄 시 표시) -->
+                <div class="pdf-print-header" style="display:none; border-bottom:2px solid #000; padding-bottom:16px; margin-bottom:24px;">
+                    <h2 style="font-size:22pt; font-weight:900; margin:0;">AVO 악플 분석 리포트</h2>
+                    <p style="font-size:10pt; color:#555; margin-top:8px;">AI 선별 기준: <span id="res-prompt-print" style="font-weight:700;"></span></p>
+                </div>
+                <div id="result-list"></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const urlInput = document.getElementById('url-input');
+    const tagsWrapper = document.getElementById('tags-wrapper');
+    let manualUrls = [];
+    const fileUploads = new Map();
+
+    function getAllUrls() {
+        const all = [...manualUrls];
+        fileUploads.forEach(f => all.push(...f.urls));
+        return all;
+    }
+
+    urlInput.addEventListener('input', (e) => {
+        if (/[\s,\n;]/.test(e.target.value)) {
+            processUrls(e.target.value);
+            urlInput.value = '';
+        }
+    });
+
+    urlInput.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const files = e.clipboardData.files;
+        if (files.length > 0) {
+            const excelFiles = [...files].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+            if (excelFiles.length > 0) { excelFiles.forEach(parseExcelFile); return; }
+        }
+        processUrls(e.clipboardData.getData('text'));
+        urlInput.value = '';
+    });
+
+    const tagContainer = document.getElementById('tag-container');
+    tagContainer.addEventListener('dragover', (e) => { e.preventDefault(); tagContainer.classList.add('drag-over'); });
+    tagContainer.addEventListener('dragleave', () => tagContainer.classList.remove('drag-over'));
+    tagContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        tagContainer.classList.remove('drag-over');
+        [...e.dataTransfer.files].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name)).forEach(parseExcelFile);
+    });
+
+    function parseExcelFile(file) {
+        const key = file.name + '_' + Date.now();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const wb = XLSX.read(e.target.result, { type: 'array' });
+            const existing = getAllUrls();
+            const urls = [];
+            wb.SheetNames.forEach(name => {
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1 });
+                rows.forEach(row => row.forEach(cell => {
+                    if (typeof cell === 'string' && cell.startsWith('http') && !existing.includes(cell) && !urls.includes(cell))
+                        urls.push(cell);
+                }));
+            });
+            fileUploads.set(key, { name: file.name, urls });
+            renderAll();
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function loadExcel(input) {
+        [...input.files].forEach(parseExcelFile);
+        input.value = '';
+    }
+
+    function removeFile(key) { fileUploads.delete(key); renderAll(); }
+
+    function processUrls(text) {
+        const existing = getAllUrls();
+        const tokens = text.split(/[\s,\n;]+/).filter(t => t.startsWith('http'));
+        let duplicates = 0;
+        tokens.forEach(t => {
+            if (existing.includes(t) || manualUrls.includes(t)) { duplicates++; return; }
+            manualUrls.push(t);
+        });
+        if (duplicates > 0) alert(`중복 링크 ${duplicates}개는 제외됐습니다.`);
+        renderAll();
+    }
+
+    function removeTag(i) { manualUrls.splice(i, 1); renderAll(); }
+
+    function renderAll() {
+        tagsWrapper.innerHTML = manualUrls.map((url, i) => `
+            <div class="url-tag">
+                <span style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${url}</span>
+                <span class="tag-del" onclick="removeTag(${i})">✕</span>
+            </div>
+        `).join('');
+
+        const fileCards = document.getElementById('file-cards');
+        fileCards.innerHTML = '';
+        fileUploads.forEach((f, key) => {
+            const card = document.createElement('div');
+            card.className = 'file-card';
+            card.innerHTML = `
+                <span style="color:#52525b; font-size:11px;">📄</span>
+                <span style="color:#a1a1aa;">${f.name}</span>
+                <span style="color:#22c55e; font-weight:600;">${f.urls.length}개</span>
+                <span onclick="removeFile('${key}')" style="cursor:pointer; color:#52525b; font-size:13px;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#52525b'">✕</span>
+            `;
+            fileCards.appendChild(card);
+        });
+
+        document.getElementById('url-count').textContent = `총 ${getAllUrls().length}개`;
+    }
+
+    async function runAvo() {
+        const key = document.getElementById('key').value;
+        const prompt = document.getElementById('prompt').value;
+        const model = document.getElementById('model').value;
+        const urlList = getAllUrls();
+        if (!urlList.length || !key) return alert("URL과 API Key를 입력해주세요!");
+
+        const btn = document.getElementById('btn');
+        btn.disabled = true;
+        btn.textContent = '분석 중...';
+        document.getElementById('result-box').classList.remove('hidden');
+        document.getElementById('status').style.display = 'flex';
+        document.getElementById('content-area').classList.add('hidden');
+
+        try {
+            const response = await fetch('/api/process-avo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ urls: urlList, openai_key: key, prompt, model })
+            });
+            const res = await response.json();
+
+            if (res.success && res.results.length > 0) {
+                document.getElementById('res-prompt').innerText = res.prompt;
+                document.getElementById('res-prompt-print').innerText = res.prompt;
+
+                const typeColor = { '댓글': { bg: '#2d1f0a', text: '#fbbf24', border: '#78350f' }, '게시글': { bg: '#0a1f12', text: '#4ade80', border: '#166534' } };
+
+                const listHtml = res.results.map((item, idx) => {
+                    const tc = typeColor[item.type] || { bg: '#18181b', text: '#a1a1aa', border: '#3f3f46' };
+                    return `
+                    <div class="result-card pdf-item">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+                            <span style="font-size:11px; font-weight:700; color:#22c55e; letter-spacing:0.05em;">${item.platform}</span>
+                            ${item.type ? `<span style="font-size:10px; font-weight:600; padding:2px 8px; border-radius:4px; background:${tc.bg}; color:${tc.text}; border:1px solid ${tc.border};">${item.type}</span>` : ''}
+                            <span style="font-size:12px; color:#71717a; font-weight:500;">${item.author}</span>
+                            <span style="font-size:11px; color:#3f3f46;">${item.date}</span>
+                        </div>
+                        <div style="font-size:14px; color:#e4e4e7; line-height:1.75; white-space:pre-wrap; margin-bottom:14px;">${item.content}</div>
+                        <a href="${item.url}" target="_blank" rel="noopener noreferrer" style="font-size:11px; color:#3f3f46; text-decoration:none; word-break:break-all; transition:color 0.15s;" onmouseover="this.style.color='#71717a'" onmouseout="this.style.color='#3f3f46'">${item.url}</a>
+                    </div>`;
+                }).join('');
+
+                document.getElementById('result-list').innerHTML = listHtml;
+                document.getElementById('status').style.display = 'none';
+                document.getElementById('content-area').classList.remove('hidden');
+            } else {
+                alert("선별된 악플이 없습니다. 프롬프트를 조정하거나 API 키를 확인해주세요.");
+                document.getElementById('result-box').classList.add('hidden');
+            }
+        } catch (e) {
+            alert("서버 연결 실패! 서버가 실행 중인지 확인하세요.");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '악플 분석 시작';
+        }
+    }
+
+    function downloadPDF() {
+        document.querySelectorAll('.pdf-print-header').forEach(el => el.style.display = 'block');
+        window.print();
+        document.querySelectorAll('.pdf-print-header').forEach(el => el.style.display = 'none');
+    }
+</script>
+</body>
+</html>
