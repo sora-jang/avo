@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AVO - 아보 리포트</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f0fdf4; color: #1e293b; }
+
+        .tag-container {
+            display: flex; flex-wrap: wrap; gap: 10px; padding: 15px;
+            background: white; border: 3px solid #dcfce7; border-radius: 40px;
+            min-height: 150px; align-content: flex-start;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .url-tag {
+            display: flex; align-items: center; background: #22c55e; color: white;
+            padding: 10px 18px; border-radius: 18px; font-size: 13px; font-weight: 600;
+            word-break: break-all; max-width: 100%; line-height: 1.4;
+        }
+        .tag-del { margin-left: 10px; cursor: pointer; font-weight: 900; background: rgba(0,0,0,0.1); width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+        .pdf-item { page-break-inside: avoid; border-bottom: 1px solid #eee; padding: 20px 0; }
+
+        @media print {
+            body * { visibility: hidden; }
+            #pdf-area, #pdf-area * { visibility: visible; }
+            #pdf-area {
+                position: absolute; top: 0; left: 0;
+                width: 100%; margin: 0; padding: 20px;
+                box-shadow: none; border: none; border-radius: 0;
+            }
+            .pdf-item { page-break-inside: avoid; }
+            @page { margin: 15mm; size: A4; }
+        }
+    </style>
+</head>
+<body class="p-6 md:p-12 flex flex-col items-center">
+
+    <div class="w-full max-w-4xl">
+        <header class="text-center mb-10">
+            <h1 class="text-7xl font-black text-green-600 italic tracking-tighter mb-2">AVO</h1>
+            <p class="text-green-700 font-bold opacity-80 italic">아티스트 보호를 위한 악플 탐지기</p>
+        </header>
+
+        <!-- 메인 입력 카드 -->
+        <div class="bg-white p-12 rounded-[48px] shadow-2xl border-4 border-green-100 space-y-8">
+            
+            <div class="text-center">
+                <label class="font-black text-green-800 mb-2 block text-xl tracking-tight">분석할 링크들을 붙여넣으세요</label>
+                <div class="flex flex-wrap justify-center gap-2 mb-4">
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">네이트판</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">디씨인사이드</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">네이버뉴스</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">더쿠</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">X (트위터)</span>
+                    <span class="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">YouTube</span>
+                </div>
+                <div class="tag-container" id="tag-container" onclick="document.getElementById('url-input').focus()">
+                    <div id="tags-wrapper" class="flex flex-wrap gap-2 w-full"></div>
+                    <textarea id="url-input" class="w-full mt-2 outline-none text-gray-400 resize-none overflow-hidden bg-transparent"
+                        placeholder="주소를 붙여넣으세요..." rows="1"></textarea>
+                </div>
+
+                <!-- 엑셀 파일 카드 영역 -->
+                <div id="file-cards" class="flex flex-wrap gap-2 mt-3 empty:hidden"></div>
+
+                <div class="flex justify-between items-center mt-2 px-1">
+                    <span id="url-count" class="text-xs text-green-600 font-bold">0개</span>
+                    <div class="flex gap-3 items-center">
+                        <label for="excel-upload" class="text-xs text-green-600 hover:text-green-800 font-semibold cursor-pointer transition-colors">📂 엑셀 업로드</label>
+                        <input id="excel-upload" type="file" accept=".xlsx,.xls,.csv" multiple class="hidden" onchange="loadExcel(this)">
+                        <button onclick="manualUrls=[]; fileUploads.clear(); renderAll();" class="text-xs text-gray-400 hover:text-red-400 font-semibold transition-colors">전체 삭제</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-4">
+                <input id="key" type="password" placeholder="OpenAI API Key (sk-...)"
+                    class="flex-1 p-5 bg-green-50 border-2 border-green-100 rounded-[24px] outline-none text-green-900 focus:border-green-400 font-mono">
+                <textarea id="prompt" class="flex-1 p-5 bg-green-50 border-2 border-green-100 rounded-[24px] outline-none text-green-900 text-sm focus:border-green-400 resize-none font-medium"
+                    rows="2">아티스트의 권익 침해를 하는 게시물과 댓글로서 법적인 분쟁이 가능한 수준의 악플을 선별해줘</textarea>
+            </div>
+
+            <button onclick="runAvo()" id="btn" 
+                class="w-full py-7 bg-green-600 hover:bg-green-700 text-white font-black text-3xl rounded-[32px] shadow-xl transition-all active:scale-95 flex items-center justify-center">
+                악플 분석 시작
+            </button>
+        </div>
+
+        <!-- 결과 리스트 -->
+        <div id="result-box" class="hidden mt-12">
+            <div id="status" class="text-center p-16 bg-white rounded-[48px] border-4 border-green-100 shadow-xl">
+                <div class="animate-spin inline-block w-14 h-14 border-4 border-green-500 border-t-transparent rounded-full mb-6"></div>
+                <p class="text-green-800 font-black text-2xl tracking-tight" id="status-msg">데이터를 분석하고 있습니다...</p>
+            </div>
+            
+            <div id="content-area" class="hidden">
+                <div id="pdf-area" class="bg-white p-12 rounded-[48px] border border-gray-100 shadow-lg mt-6">
+                    <div style="border-bottom: 5px solid #16a34a; padding-bottom: 20px; margin-bottom: 30px;">
+                        <h2 style="font-size: 28pt; font-weight: 900; color: #000; margin: 0; letter-spacing: -1px;">AVO 악플 분석 리포트</h2>
+                        <p style="font-size: 11pt; color: #666; margin-top: 10px;">AI 선별 기준: <span id="res-prompt" style="font-weight: 700; color: #16a34a;"></span></p>
+                    </div>
+                    <div id="result-list"></div>
+                </div>
+                <button onclick="downloadPDF()" class="w-full mt-8 py-6 bg-slate-900 text-white font-black text-2xl rounded-[32px] shadow-2xl hover:bg-black transition-all">
+                    PDF 리포트 다운로드
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('url-input');
+        const tagsWrapper = document.getElementById('tags-wrapper');
+        let manualUrls = [];
+        const fileUploads = new Map(); // key → { name, urls[] }
+
+        function getAllUrls() {
+            const all = [...manualUrls];
+            fileUploads.forEach(f => all.push(...f.urls));
+            return all;
+        }
+
+        urlInput.addEventListener('input', (e) => {
+            if (/[\s,\n;]/.test(e.target.value)) {
+                processUrls(e.target.value);
+                urlInput.value = '';
+            }
+        });
+
+        urlInput.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const files = e.clipboardData.files;
+            if (files.length > 0) {
+                const excelFiles = [...files].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+                if (excelFiles.length > 0) { excelFiles.forEach(parseExcelFile); return; }
+            }
+            processUrls(e.clipboardData.getData('text'));
+            urlInput.value = '';
+        });
+
+        // 드래그 앤 드롭
+        const tagContainer = document.getElementById('tag-container');
+        tagContainer.addEventListener('dragover', (e) => { e.preventDefault(); tagContainer.style.borderColor = '#16a34a'; });
+        tagContainer.addEventListener('dragleave', () => { tagContainer.style.borderColor = ''; });
+        tagContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            tagContainer.style.borderColor = '';
+            const excelFiles = [...e.dataTransfer.files].filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+            excelFiles.forEach(parseExcelFile);
+        });
+
+        function parseExcelFile(file) {
+            const key = file.name + '_' + Date.now();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const wb = XLSX.read(e.target.result, { type: 'array' });
+                const existing = getAllUrls();
+                const urls = [];
+                wb.SheetNames.forEach(name => {
+                    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1 });
+                    rows.forEach(row => row.forEach(cell => {
+                        if (typeof cell === 'string' && cell.startsWith('http') && !existing.includes(cell) && !urls.includes(cell))
+                            urls.push(cell);
+                    }));
+                });
+                fileUploads.set(key, { name: file.name, urls });
+                renderAll();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadExcel(input) {
+            [...input.files].forEach(parseExcelFile);
+            input.value = '';
+        }
+
+        function removeFile(key) {
+            fileUploads.delete(key);
+            renderAll();
+        }
+
+        function processUrls(text) {
+            const existing = getAllUrls();
+            const tokens = text.split(/[\s,\n;]+/).filter(t => t.startsWith('http'));
+            let duplicates = 0;
+            tokens.forEach(t => {
+                if (existing.includes(t) || manualUrls.includes(t)) { duplicates++; return; }
+                manualUrls.push(t);
+            });
+            if (duplicates > 0) alert(`중복 링크 ${duplicates}개는 제외됐습니다.`);
+            renderAll();
+        }
+
+        function removeTag(i) { manualUrls.splice(i, 1); renderAll(); }
+
+        function renderAll() {
+            // 수동 URL 태그
+            tagsWrapper.innerHTML = manualUrls.map((url, i) => `
+                <div class="url-tag shadow-sm">
+                    ${url}
+                    <span class="tag-del" onclick="removeTag(${i})">×</span>
+                </div>
+            `).join('');
+
+            // 엑셀 파일 카드
+            const fileCards = document.getElementById('file-cards');
+            fileCards.innerHTML = '';
+            fileUploads.forEach((f, key) => {
+                const card = document.createElement('div');
+                card.className = 'flex items-center gap-2 px-4 py-2 bg-green-50 border-2 border-green-200 rounded-2xl text-sm font-semibold text-green-800';
+                card.innerHTML = `
+                    <span>📄 ${f.name}</span>
+                    <span class="text-green-500">${f.urls.length}개</span>
+                    <span onclick="removeFile('${key}')" class="cursor-pointer text-gray-400 hover:text-red-400 font-black ml-1">×</span>
+                `;
+                fileCards.appendChild(card);
+            });
+
+            const total = getAllUrls().length;
+            document.getElementById('url-count').textContent = `총 ${total}개`;
+        }
+
+        async function runAvo() {
+            const key = document.getElementById('key').value;
+            const prompt = document.getElementById('prompt').value;
+
+            const urlList = getAllUrls();
+            if (!urlList.length || !key) return alert("URL과 API Key를 입력해주세요!");
+
+            const btn = document.getElementById('btn');
+            btn.disabled = true;
+            document.getElementById('result-box').classList.remove('hidden');
+            document.getElementById('status').classList.remove('hidden');
+            document.getElementById('content-area').classList.add('hidden');
+            document.getElementById('status-msg').innerText = "AI가 악플을 정밀하게 분석 중입니다...";
+
+            try {
+                const response = await fetch('/api/process-avo', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ urls: urlList, openai_key: key, prompt: prompt })
+                });
+                const res = await response.json();
+                
+                if (res.success && res.results.length > 0) {
+                    document.getElementById('res-prompt').innerText = res.prompt;
+                    const listHtml = res.results.map(item => `
+                        <div class="pdf-item">
+                            <div style="font-size: 10pt; font-weight: 900; margin-bottom: 5px;">
+                                <span style="color: #16a34a;">[${item.platform}]</span>
+                                ${item.type ? `<span style="margin-left:6px; padding:2px 8px; border-radius:20px; font-size:9pt; background:${item.type==='댓글'?'#fef3c7':'#dcfce7'}; color:${item.type==='댓글'?'#92400e':'#166534'};">${item.type}</span>` : ''}
+                            </div>
+                            <div style="font-size: 13pt; font-weight: 800; color: #111; margin-bottom: 4px;">${item.author} <span style="font-size: 9pt; color: #999; font-weight: 400;">(${item.date})</span></div>
+                            <div style="font-size: 9pt; margin-bottom: 12px; word-break: break-all;"><a href="${item.url}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; opacity: 0.8; text-decoration: underline;">URL: ${item.url}</a></div>
+                            <div style="font-size: 11pt; color: #334155; line-height: 1.7; white-space: pre-wrap; background: #f8fafc; padding: 15px; border-radius: 12px;">${item.content}</div>
+                        </div>
+                    `).join('');
+                    document.getElementById('result-list').innerHTML = listHtml;
+                    document.getElementById('status').classList.add('hidden');
+                    document.getElementById('content-area').classList.remove('hidden');
+                } else { 
+                    alert("선별된 악플이 없습니다. 프롬프트를 조정하거나 API 키를 확인해주세요."); 
+                    document.getElementById('result-box').classList.add('hidden');
+                }
+            } catch (e) { alert("서버 연결 실패! 서버가 실행 중인지 확인하세요."); }
+            finally { btn.disabled = false; }
+        }
+
+        function downloadPDF() {
+            window.print();
+        }
+    </script>
+</body>
+</html>
